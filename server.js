@@ -21,9 +21,11 @@ const stripeWebhook = require('./routes/stripeWebhook');
 
 const app = express();
 
+app.use('/api/webhook', stripeWebhook);
+
 // Middleware
 app.use(bodyParser.json());
-app.use(bodyParser.raw({ type: 'application/json' }));
+
 const corsOptions = {
   origin: [
     'http://localhost:5173',
@@ -32,7 +34,7 @@ const corsOptions = {
   credentials: true,
 };
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // Allow pre-flight requests
+app.options('*', cors(corsOptions));
 
 // Apply rate limiter to all routes
 app.use(rateLimiter);
@@ -49,7 +51,7 @@ mongoose
 app.get('/', (req, res) => res.send('API Running'));
 app.use('/api/auth', authRoutes);
 app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/booking', bookingRoutes);
+app.use('/api/bookings', bookingRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reviews', reviewRoutes);
@@ -58,7 +60,6 @@ app.use('/api/rental-history', rentalHistoryRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/admin', supportQueriesRoutes);
-app.use('/api/webhook', stripeWebhook);
 
 // Serve static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));

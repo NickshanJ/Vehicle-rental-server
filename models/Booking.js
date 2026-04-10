@@ -5,7 +5,8 @@ const bookingSchema = new mongoose.Schema({
   vehicle: { type: mongoose.Schema.Types.ObjectId, ref: 'Vehicle', required: true },
   startDate: { type: Date, required: true },
   endDate: { type: Date, required: true },
-  totalAmount: { type: Number, required: true }
+  totalAmount: { type: Number, required: true },
+  status: { type: String, default: 'confirmed' },
 });
 
 module.exports = mongoose.model('Booking', bookingSchema);

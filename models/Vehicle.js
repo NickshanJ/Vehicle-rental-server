@@ -9,7 +9,12 @@ const vehicleSchema = new mongoose.Schema({
   images: [String],
   description: String,
   location: String,
-  status: { type: String, default: 'pending' }
+  status: { type: String, default: 'pending' },
+  vehicleType: { type: String }, 
+  mileage: { type: Number },     
+  weight: { type: Number },
+  topSpeed: { type: Number },
+  fuelType: { type: String },
 });
 
 module.exports = mongoose.model('Vehicle', vehicleSchema);

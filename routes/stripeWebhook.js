@@ -15,9 +15,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   let event;
 
   try {
-    console.log('Received webhook event:', req.body); // Log the received event body
     event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    console.log('Webhook event verified:', event); // Log the verified event
+    console.log('Webhook event verified:', event.type);
   } catch (err) {
     console.error('Webhook signature verification failed:', err.message);
     return res.status(400).send(`Webhook Error: ${err.message}`);
@@ -39,8 +38,74 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
   res.json({ received: true });
 });
 
+// FIX: This function was missing — defined here now
+const handleCheckoutSessionCompleted = async (session) => {
+  console.log('Checkout session completed:', session.id);
+  const { vehicle, startDate, endDate, totalAmount, userId } = session.metadata;
+
+  if (!vehicle || !startDate || !endDate || !totalAmount || !userId) {
+    console.error('Missing metadata in checkout session:', session.metadata);
+    return;
+  }
+
+  try {
+    const booking = new Booking({
+      user: userId,
+      vehicle,
+      startDate,
+      endDate,
+      totalAmount: Number(totalAmount),
+      status: 'confirmed',
+    });
+    await booking.save();
+    console.log('Booking saved from checkout session:', booking._id);
+
+    const rentalHistory = new RentalHistory({
+      user: userId,
+      vehicle,
+      startDate,
+      endDate,
+      totalAmount: Number(totalAmount),
+    });
+    await rentalHistory.save();
+    console.log('Rental history saved');
+
+    const populatedBooking = await Booking.findById(booking._id)
+      .populate({ path: 'user', select: 'username email' })
+      .populate({ path: 'vehicle', select: 'model' });
+
+    const invoicesDir = path.join(__dirname, '../invoices');
+    if (!fs.existsSync(invoicesDir)) {
+      fs.mkdirSync(invoicesDir);
+    }
+
+    const invoicePath = path.join(invoicesDir, `invoice_${booking._id}.pdf`);
+    await generateInvoice(populatedBooking, invoicePath);
+
+    const emailText = `
+      Dear ${populatedBooking.user.username},
+      Your booking for "${populatedBooking.vehicle.model}" has been confirmed!
+      - Start Date: ${new Date(booking.startDate).toISOString().split('T')[0]}
+      - End Date: ${new Date(booking.endDate).toISOString().split('T')[0]}
+      - Total Price: ₹${booking.totalAmount}
+      Please find your invoice attached.
+      Thank you for choosing our service!
+    `;
+
+    await sendEmail(
+      populatedBooking.user.email,
+      'Booking Confirmation and Invoice',
+      emailText,
+      [{ filename: `invoice_${booking._id}.pdf`, path: invoicePath }]
+    );
+    console.log('Confirmation email sent to:', populatedBooking.user.email);
+  } catch (error) {
+    console.error('Error handling checkout session completed:', error.message);
+  }
+};
+
 const handlePaymentIntentSucceeded = async (paymentIntent) => {
-  console.log('Payment Intent succeeded:', paymentIntent);
+  console.log('Payment Intent succeeded:', paymentIntent.id);
   const { vehicle, startDate, endDate, totalAmount, userId } = paymentIntent.metadata;
 
   try {
@@ -75,23 +140,15 @@ const handlePaymentIntentSucceeded = async (paymentIntent) => {
     }
 
     const invoicePath = path.join(invoicesDir, `invoice_${booking._id}.pdf`);
-    console.log(`Generating invoice for booking ID: ${booking._id}`);
-    try {
-      await generateInvoice(populatedBooking, invoicePath);
-      console.log(`Invoice successfully generated at: ${invoicePath}`);
-    } catch (error) {
-      console.error('Error generating invoice:', error.message);
-      throw new Error('Failed to generate invoice.');
-    }
+    await generateInvoice(populatedBooking, invoicePath);
 
     if (!fs.existsSync(invoicePath)) {
-      console.error(`Invoice file not found at: ${invoicePath}`);
       throw new Error(`Invoice file not found at: ${invoicePath}`);
     }
 
     const emailText = `
       Dear ${populatedBooking.user.username},
-      Your booking for the vehicle "${populatedBooking.vehicle.model}" has been successfully confirmed!
+      Your booking for "${populatedBooking.vehicle.model}" has been confirmed!
       Booking Details:
       - Start Date: ${new Date(booking.startDate).toISOString().split('T')[0]}
       - End Date: ${new Date(booking.endDate).toISOString().split('T')[0]}
@@ -100,46 +157,15 @@ const handlePaymentIntentSucceeded = async (paymentIntent) => {
       Thank you for choosing our service!
     `;
 
-    console.log('Preparing to send email to:', populatedBooking.user.email);
     await sendEmail(
       populatedBooking.user.email,
       'Booking Confirmation and Invoice',
       emailText,
-      [
-        {
-          filename: `invoice_${booking._id}.pdf`,
-          path: invoicePath,
-        },
-      ]
+      [{ filename: `invoice_${booking._id}.pdf`, path: invoicePath }]
     );
     console.log(`Email sent successfully to ${populatedBooking.user.email}`);
   } catch (error) {
     console.error('Error handling payment intent:', error.message);
-  }
-};
-
-const handleCheckoutSessionCompleted = async (session) => {
-  console.log('Checkout session completed:', session);
-
-  try {
-    const booking = await Booking.findByIdAndUpdate(
-      session.metadata.bookingId,
-      { status: 'completed' },
-      { new: true }
-    ).populate('user vehicle');
-
-    if (!booking) {
-      return console.error('Booking not found.');
-    }
-
-    const emailSubject = 'Payment Confirmation';
-    const emailText = `Thank you for your payment. Your payment details are: ${JSON.stringify(session)}`;
-
-    console.log('Preparing to send email to:', booking.user.email);
-    await sendEmail(booking.user.email, emailSubject, emailText);
-    console.log(`Email sent successfully to ${booking.user.email}`);
-  } catch (error) {
-    console.error('Error handling checkout session:', error.message);
   }
 };
 
