@@ -7,22 +7,26 @@ const authenticateToken = async (req, res, next) => {
   const token = authHeader && authHeader.split(' ')[1];
 
   if (!token) {
-    console.log('No token provided');
     return res.status(401).json({ message: 'No token provided' });
   }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    console.log('Token verified. Decoded:', decoded);
 
-    const user = await User.findById(decoded.user.userId) || await Admin.findById(decoded.user.userId);
+    // FIX: JWT payload may store ID as either "userId" or "id" depending on
+    // how it was signed in authController. Read both to be safe.
+    const userId = decoded.user?.userId || decoded.user?.id || decoded.userId || decoded.id;
+
+    if (!userId) {
+      return res.status(403).json({ message: 'Invalid token: no user ID found' });
+    }
+
+    const user = await User.findById(userId) || await Admin.findById(userId);
     if (!user) {
-      console.log('User not found');
       return res.status(403).json({ message: 'User not found' });
     }
 
     req.user = user;
-    console.log('authenticateToken: User authenticated:', req.user);
     next();
   } catch (err) {
     console.error('Error verifying token:', err);

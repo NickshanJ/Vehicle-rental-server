@@ -70,6 +70,7 @@ const loginUser = async (req, res) => {
     const payload = {
       user: {
         userId: user._id,
+        id: user._id,  // FIX: add both id and userId for compatibility
         username: user.username,
         isAdmin,
       },
@@ -88,6 +89,7 @@ const loginUser = async (req, res) => {
           token,
           user: {
             id: user._id,
+            _id: user._id,  // FIX: add _id for frontend compatibility
             username: user.username,
             isAdmin,
           },
@@ -131,7 +133,8 @@ const getProfile = async (req, res) => {
       profile: {
         username: user.username,
         email: user.email,
-        imageUrl: user.imageUrl,
+        imageUrl: user.imageUrl || user.profileImage,
+        profileImage: user.profileImage || user.imageUrl,
         bookings: user.bookings,
         reviews: user.reviews
       },
