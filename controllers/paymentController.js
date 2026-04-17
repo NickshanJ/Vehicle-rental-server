@@ -32,23 +32,45 @@ exports.getPaymentById = async (req, res) => {
 // Handle Stripe checkout session creation
 exports.createCheckoutSession = async (req, res) => {
   try {
-    const frontendUrl = 'https://online-vehicle-rental.netlify.app';
+    const { vehicle, startDate, endDate, totalAmount } = req.body;
+    const frontendUrl = process.env.CLIENT_URL || 'http://localhost:5173';
+
+    // Get user ID from the authenticated request
+    const userId = req.user?._id?.toString();
+
+    if (!userId) {
+      return res.status(401).json({ message: 'User not authenticated' });
+    }
+
+    if (!vehicle || !startDate || !endDate || !totalAmount) {
+      return res.status(400).json({ message: 'Missing booking details' });
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [
         {
           price_data: {
-            currency: 'usd',
-            product_data: { name: 'Vehicle Rental Payment' },
-            unit_amount: req.body.totalAmount * 100, 
+            currency: 'inr',
+            product_data: {
+              name: 'Vehicle Rental Payment',
+              description: `Rental from ${new Date(startDate).toLocaleDateString()} to ${new Date(endDate).toLocaleDateString()}`,
+            },
+            unit_amount: Math.round(totalAmount * 100),
           },
           quantity: 1,
         },
       ],
       mode: 'payment',
-      success_url: `${frontendUrl}/thank-you`, 
+      success_url: `${frontendUrl}/thank-you`,
       cancel_url: `${frontendUrl}/checkout-cancelled`,
+      metadata: {
+        vehicle: vehicle.toString(),
+        startDate: new Date(startDate).toISOString(),
+        endDate: new Date(endDate).toISOString(),
+        totalAmount: totalAmount.toString(),
+        userId: userId,
+      },
     });
 
     res.status(200).json({ url: session.url });
@@ -60,24 +82,6 @@ exports.createCheckoutSession = async (req, res) => {
 
 // Handle webhook
 exports.handleWebhook = (req, res) => {
-  const sig = req.headers['stripe-signature'];
-
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-
-    // Call handlePaymentSuccess function manually (if still needed)
-    handlePaymentSuccess({ body: { sessionId: session.id } }, res);
-  } else {
-    res.sendStatus(400);
-  }
   res.status(200).json({ received: true });
 };
 
@@ -86,7 +90,6 @@ exports.createPayment = async (req, res) => {
   try {
     res.status(200).json({ message: 'Payment created successfully!' });
   } catch (error) {
-    console.error('Error creating payment:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -96,7 +99,6 @@ exports.updatePayment = async (req, res) => {
   try {
     res.status(200).json({ message: 'Payment updated successfully!' });
   } catch (error) {
-    console.error('Error updating payment:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
@@ -106,17 +108,6 @@ exports.deletePayment = async (req, res) => {
   try {
     res.status(200).json({ message: 'Payment deleted successfully!' });
   } catch (error) {
-    console.error('Error deleting payment:', error.message);
     res.status(500).json({ message: 'Server error', error: error.message });
-  }
-};
-
-// Get all completed payments
-const getPayments = async (req, res) => {
-  try {
-    const payments = await Payment.find({ status: 'Completed' }).populate('user');
-    res.json(payments);
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching payments.' });
   }
 };
